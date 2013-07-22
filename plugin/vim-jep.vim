@@ -3,36 +3,64 @@ sv jep-debug
 let g:jep_debug_buffer = bufnr("%")
 " close window
 close
+ 
+function! s:min_length(ary1, ary2)
+  return len(a:ary1) < len(a:ary2) ? len(a:ary1) : len(a:ary2)
+endfunction
 
-function! s:make_diff(lines, last_lines)
-  let b1 = 0
-  let b2 = len(a:lines) < len(a:last_lines) ? len(a:lines) : len(a:last_lines)
-  while b2 > b1 + 1 
-    let m = b1 + ((b2 - b1)/2)
-    if a:lines[b1 : m] == a:last_lines[b1 : m]
-      let b1 = m
+" offset of first different line 
+" runs from the first element forward or the last element backward (reverse == true)
+" equal to length of shorter file if no different line is found
+function! s:first_diff_offset(lines1, lines2, reverse)
+  let minlen = s:min_length(a:lines1, a:lines2)
+  let si = 0
+  let ei = minlen-1
+  while ei > si
+    let len = ei - si + 1
+    let m = si + float2nr(floor(len/2)) - 1
+    if !a:reverse
+      let equal = (a:lines1[si : m] == a:lines2[si : m])
     else
-      let b2 = m
+      let equal = (a:lines1[-1-m : -1-si] == a:lines2[-1-m : -1-si])
+    end
+    if equal
+      let si = m+1
+    else
+      let ei = m
     endif
   endwhile
+  " si == ei
+  if !a:reverse
+    let equal = a:lines1[si] == a:lines2[si]
+  else
+    let equal = a:lines1[-1-si] == a:lines2[-1-si]
+  end
+  if equal
+    return si+1
+  else 
+    return si
+  endif
+endfunction
 
-  return [ m ]
-  let i=0
-  let first_changed = -1
-  while i < len(a:lines) && i < len(a:last_lines)
-    if a:lines[i] != a:last_lines[i]
-      let first_changed = i
+function! s:make_diff(lines1, lines2)
+  let minlen = s:min_length(a:lines1, a:lines2)
+  let start_offset = s:first_diff_offset(a:lines1, a:lines2, 0)
+  if start_offset == minlen
+    " not found
+    if len(a:lines1) > len(a:lines2)
+      " cut lines1 at the end
+      return [len(a:lines2), len(a:lines1), len(a:lines2), len(a:lines2)]
+    elseif len(a:lines1) < len(a:lines2)
+      " added to lines1 at the end
+      return [len(a:lines1), len(a:lines1), len(a:lines1), len(a:lines2)]
+    else
+      " no change
+      return []
     endif
-    let i += 1
-  endwhile
-  let last_changed = -1
-  " let i=1 " while i <= len(a:lines) && i <= len(a:last_lines)
-  "   if a:lines[-i] != a:last_lines[-i]
-  "     let last_changed = i
-  "   endif
-  "   let i += 1
-  " endwhile
-  return [ first_changed, len(a:lines)-last_changed ]
+  else
+    let end_offset = s:first_diff_offset(a:lines1, a:lines2, 1)
+    return [start_offset, len(a:lines1)-end_offset, start_offset, len(a:lines2)-end_offset]
+  endif
 endfunction
 
 function! s:ping()
@@ -41,13 +69,20 @@ function! s:ping()
   if exists("b:last_changedtick") && b:changedtick > b:last_changedtick && bufnr("%") != g:jep_debug_buffer
     let lines = getline(0, "$") 
     if exists("b:last_lines")
-      let change = s:make_diff(lines, b:last_lines)
+      let change = s:make_diff(b:last_lines, lines)
     else
       let change = []
     endif
     if debugwin > -1
       execute debugwin . "wincmd w"
       let failed = append(line("$"), "changed ".winbefore." ".len(lines)." ".join(change, ",")) 
+      if len(change) > 0
+        let failed = append(line("$"), "---")
+        if change[3] > change[2]
+          let failed = append(line("$"), join(lines[change[2] : change[3]-1], ""))
+        endif
+        let failed = append(line("$"), "---")
+      endif
       execute winbefore . "wincmd w"
     endif
     let b:last_lines = lines
