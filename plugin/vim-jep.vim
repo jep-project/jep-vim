@@ -59,13 +59,30 @@ function! s:make_diff(lines1, lines2)
     endif
   else
     let end_offset = s:first_diff_offset(a:lines1, a:lines2, 1)
+    if len(a:lines1) < len(a:lines2)
+      if start_offset > len(a:lines1)-end_offset
+        let end_offset = len(a:lines1)-start_offset
+      endif
+    else
+      if start_offset > len(a:lines2)-end_offset
+        let end_offset = len(a:lines2)-start_offset
+      end
+    end
     return [start_offset, len(a:lines1)-end_offset, start_offset, len(a:lines2)-end_offset]
   endif
 endfunction
 
-function! s:ping()
+function! s:debug_print(msg)
   let winbefore = winnr()
   let debugwin = bufwinnr(g:jep_debug_buffer)
+  if debugwin > -1
+    execute debugwin . "wincmd w"
+    let failed = append(line("$"), a:msg) 
+    execute winbefore . "wincmd w"
+  endif
+endfunction
+
+function! s:ping()
   if exists("b:last_changedtick") && b:changedtick > b:last_changedtick && bufnr("%") != g:jep_debug_buffer
     let lines = getline(0, "$") 
     if exists("b:last_lines")
@@ -73,17 +90,30 @@ function! s:ping()
     else
       let change = []
     endif
-    if debugwin > -1
-      execute debugwin . "wincmd w"
-      let failed = append(line("$"), "changed ".winbefore." ".len(lines)." ".join(change, ",")) 
-      if len(change) > 0
-        let failed = append(line("$"), "---")
-        if change[3] > change[2]
-          let failed = append(line("$"), join(lines[change[2] : change[3]-1], ""))
+    call s:debug_print("changed win ".winnr()." [".len(lines)." lines] ".join(change, ",")) 
+    if len(change) > 0
+      if change[3] > change[2]
+        if change[1] > change[0]
+          if change[1] == change[0]+1
+            call s:debug_print("--- changed line ".(change[0]+1))
+          else
+            call s:debug_print("--- changed lines ".(change[0]+1)." to ".change[1])
+          endif
+          call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
+          call s:debug_print("--- into:")
+          call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
+        else
+          call s:debug_print("--- inserted at line ".(change[0]+1))
+          call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
         endif
-        let failed = append(line("$"), "---")
+      else
+        if change[1] == change[0]+1
+          call s:debug_print("--- deleted line ".(change[0]+1))
+        else
+          call s:debug_print("--- deleted lines ".(change[0]+1)." to ".change[1])
+        endif
+        call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
       endif
-      execute winbefore . "wincmd w"
     endif
     let b:last_lines = lines
   endif
