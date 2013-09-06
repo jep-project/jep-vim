@@ -95,22 +95,22 @@ function! s:ping()
       if change[3] > change[2]
         if change[1] > change[0]
           if change[1] == change[0]+1
-            call s:debug_print("--- changed line ".(change[0]+1))
+            call s:debug_print("--- changed line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
           else
-            call s:debug_print("--- changed lines ".(change[0]+1)." to ".change[1])
+            call s:debug_print("--- changed lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
           endif
           call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
           call s:debug_print("--- into:")
           call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
         else
-          call s:debug_print("--- inserted at line ".(change[0]+1))
+          call s:debug_print("--- inserted at line ".(change[0]+1)." [".line2byte(change[0]+1)."]")
           call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
         endif
       else
         if change[1] == change[0]+1
-          call s:debug_print("--- deleted line ".(change[0]+1))
+          call s:debug_print("--- deleted line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
         else
-          call s:debug_print("--- deleted lines ".(change[0]+1)." to ".change[1])
+          call s:debug_print("--- deleted lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
         endif
         call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
       endif
