@@ -115,9 +115,25 @@ function! s:ping()
         call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
       endif
     endif
+
+ruby << RUBYEOF
+    file = VIM::evaluate('expand("%:p")')
+    connector = $connector_manager.connector_for_file(file)
+    if connector
+      connector.connect unless connector.connected?
+      lines = VIM::evaluate('lines')
+      connector.send_message("ContentSync", {"file" => file}, lines.join("\n"))
+    else
+      VIM.message("JEP: no config for #{file}")
+    end
+RUBYEOF
+
     let b:last_lines = lines
   endif
   let b:last_changedtick = b:changedtick
+endfunction
+
+function! s:leave()
 endfunction
 
 augroup jep 
@@ -127,5 +143,17 @@ augroup jep
   " au InsertLeave * call s:ping()
   au CursorHold * call s:ping()
   au CursorHoldI * call s:ping()
+  au VimLeave * call s:leave()
 augroup end
+
+ruby << RUBYEOF
+$:.unshift("c:/users/mthiede/gitrepos/ruby-jep/lib")
+$:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
+require 'logger'
+require 'jep/frontend/connector_manager'
+
+$connector_manager = JEP::Frontend::ConnectorManager.new(nil,
+  :logger => Logger.new("c:/users/mthiede/gitrepos/vim-jep/vim-jep.log"),
+  :keep_outfile => true)
+RUBYEOF
 
