@@ -1,9 +1,3 @@
-" create buffer and window
-sv jep-debug
-let g:jep_debug_buffer = bufnr("%")
-" close window
-close
-
 set updatetime=1000
  
 function! s:min_length(ary1, ary2)
@@ -74,47 +68,38 @@ function! s:make_diff(lines1, lines2)
   endif
 endfunction
 
-function! s:debug_print(msg)
-  let winbefore = winnr()
-  let debugwin = bufwinnr(g:jep_debug_buffer)
-  if debugwin > -1
-    execute debugwin . "wincmd w"
-    let failed = append(line("$"), a:msg) 
-    execute winbefore . "wincmd w"
-  endif
-endfunction
-
 function! s:ping()
-  if exists("b:last_changedtick") && b:changedtick > b:last_changedtick && bufnr("%") != g:jep_debug_buffer
+  if exists("b:last_changedtick") && b:changedtick > b:last_changedtick
     let lines = getline(0, "$") 
     if exists("b:last_lines")
       let change = s:make_diff(b:last_lines, lines)
     else
       let change = []
     endif
-    call s:debug_print("changed win ".winnr()." [".len(lines)." lines] ".join(change, ",")) 
+    let debug_console = "jep-debug"
+    call g:console_write(debug_console, "changed win ".winnr()." [".len(lines)." lines] ".join(change, ",")) 
     if len(change) > 0
       if change[3] > change[2]
         if change[1] > change[0]
           if change[1] == change[0]+1
-            call s:debug_print("--- changed line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
+            call g:console_write(debug_console, "--- changed line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
           else
-            call s:debug_print("--- changed lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
+            call g:console_write(debug_console, "--- changed lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
           endif
-          call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
-          call s:debug_print("--- into:")
-          call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
+          call g:console_write(debug_console, join(b:last_lines[change[0] : change[1]-1], "\\n"))
+          call g:console_write(debug_console, "--- into:")
+          call g:console_write(debug_console, join(lines[change[2] : change[3]-1], "\\n"))
         else
-          call s:debug_print("--- inserted at line ".(change[0]+1)." [".line2byte(change[0]+1)."]")
-          call s:debug_print(join(lines[change[2] : change[3]-1], "\\n"))
+          call g:console_write(debug_console, "--- inserted at line ".(change[0]+1)." [".line2byte(change[0]+1)."]")
+          call g:console_write(debug_console, join(lines[change[2] : change[3]-1], "\\n"))
         endif
       else
         if change[1] == change[0]+1
-          call s:debug_print("--- deleted line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
+          call g:console_write(debug_console, "--- deleted line ".(change[0]+1)." [".line2byte(change[0]+1).",".line2byte(change[0]+2)."]")
         else
-          call s:debug_print("--- deleted lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
+          call g:console_write(debug_console, "--- deleted lines ".(change[0]+1)." to ".change[1]." [".line2byte(change[0]+1).",".line2byte(change[1]+1)."]")
         endif
-        call s:debug_print(join(b:last_lines[change[0] : change[1]-1], "\\n"))
+        call g:console_write(debug_console, join(b:last_lines[change[0] : change[1]-1], "\\n"))
       endif
     endif
 
@@ -128,20 +113,31 @@ ruby << RUBYEOF
     else
       VIM.message("JEP: no config for #{file}")
     end
-
-    10.times do
-      $connector_manager.all_connectors.each do |c|
-        File.open("c:/users/mthiede/gitrepos/vim-jep/backend.log", "a") do |f|
-          f.write(c.read_service_output_lines.join("\n")+"\n")
-        end
-      end
-      sleep(0.1)
-    end
 RUBYEOF
 
     let b:last_lines = lines
   endif
   let b:last_changedtick = b:changedtick
+
+ruby << RUBYEOF
+  $connector_manager.all_connectors.each do |c|
+    console_name = "JEP: #{c.config.file}"
+    lines = c.read_service_output_lines
+    if lines.size > 0
+      msg = lines.join("\n")+"\n"
+      VIM::evaluate("g:console_write(\"#{console_name}\",#{msg.inspect})")
+    end
+  end
+RUBYEOF
+  
+  " retrigger hold event
+  if mode() == "i"
+    " escape and re-enter insert mode
+    call feedkeys("\ea")
+  else
+    " start search and cancel
+    call feedkeys("f\e")
+  endif
 endfunction
 
 function! s:leave()
@@ -149,14 +145,6 @@ ruby << RUBYEOF
   VIM.message("leaving...")
   $connector_manager.all_connectors.each do |c|
     c.stop
-  end
-  10.times do
-    $connector_manager.all_connectors.each do |c|
-      File.open("c:/users/mthiede/gitrepos/vim-jep/backend.log", "a") do |f|
-        f.write(c.read_service_output_lines.join("\n")+"\n")
-      end
-    end
-    sleep(0.1)
   end
   VIM.message("exit now")
   sleep(1)
@@ -179,8 +167,33 @@ $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
 require 'jep/frontend/connector_manager'
 
+class ConnectorLogger
+  def initialize(jep_file)
+    @jep_file = jep_file
+  end
+  def debug(msg)
+    log("DEBUG: #{msg}")
+  end
+  def info(msg)
+    log("INFO: #{msg}")
+  end
+  def warn(msg)
+    log("WARN: #{msg}")
+  end
+  def error(msg)
+    log("ERROR: #{msg}")
+  end
+  def fatal(msg)
+    log("FATAL: #{msg}")
+  end
+  def log(msg)
+    console_name = "JEP: #{@jep_file}"
+    VIM::evaluate("g:console_write(\"#{console_name}\",#{msg.inspect})")
+  end
+end
+
 $connector_manager = JEP::Frontend::ConnectorManager.new(nil,
-  :logger => Logger.new("c:/users/mthiede/gitrepos/vim-jep/vim-jep.log"),
+  :logger_provider => proc do |jep_file| ConnectorLogger.new(jep_file) end,
   :keep_outfile => true)
 RUBYEOF
 
