@@ -3,6 +3,8 @@ sv jep-debug
 let g:jep_debug_buffer = bufnr("%")
 " close window
 close
+
+set updatetime=1000
  
 function! s:min_length(ary1, ary2)
   return len(a:ary1) < len(a:ary2) ? len(a:ary1) : len(a:ary2)
@@ -126,6 +128,15 @@ ruby << RUBYEOF
     else
       VIM.message("JEP: no config for #{file}")
     end
+
+    10.times do
+      $connector_manager.all_connectors.each do |c|
+        File.open("c:/users/mthiede/gitrepos/vim-jep/backend.log", "a") do |f|
+          f.write(c.read_service_output_lines.join("\n")+"\n")
+        end
+      end
+      sleep(0.1)
+    end
 RUBYEOF
 
     let b:last_lines = lines
@@ -134,6 +145,22 @@ RUBYEOF
 endfunction
 
 function! s:leave()
+ruby << RUBYEOF
+  VIM.message("leaving...")
+  $connector_manager.all_connectors.each do |c|
+    c.stop
+  end
+  10.times do
+    $connector_manager.all_connectors.each do |c|
+      File.open("c:/users/mthiede/gitrepos/vim-jep/backend.log", "a") do |f|
+        f.write(c.read_service_output_lines.join("\n")+"\n")
+      end
+    end
+    sleep(0.1)
+  end
+  VIM.message("exit now")
+  sleep(1)
+RUBYEOF
 endfunction
 
 augroup jep 
