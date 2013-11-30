@@ -1,6 +1,10 @@
 " write +msg+ to a new console window titled +console+
-" if +show+ is true, the console window will be shown in a new window
-function! g:console_write(console, msg, show)
+" if the third argument is true, the console window will be shown in a new window
+function! g:console_write(console, msg, ...)
+  call s:console_write(a:console, a:msg, a:0)
+endfunction
+
+function! s:console_write(console, msg, show)
   " remember active window
   let cdesc = get(s:console_descs, a:console)
   if type(cdesc) == type({})
