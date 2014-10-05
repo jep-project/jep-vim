@@ -107,9 +107,9 @@ ruby << RUBYEOF
     file = VIM::evaluate('expand("%:p")')
     connector = $connector_manager.connector_for_file(file)
     if connector
-      connector.connect unless connector.connected?
+      connector.start unless connector.connected?
       lines = VIM::evaluate('lines')
-      connector.send_message("ContentSync", {"file" => file}, lines.join("\n"))
+      connector.message_handler.sync_file(file, lines.join("\n"))
     else
       VIM.message("JEP: no config for #{file}")
     end
@@ -121,15 +121,13 @@ RUBYEOF
 
 ruby << RUBYEOF
   $connector_manager.all_connectors.each do |c|
-    console_name = "JEP: #{c.config.file}"
-    lines = c.read_service_output_lines
-    if lines.size > 0
-      msg = lines.join("\n")+"\n"
-      VIM::evaluate("g:console_write(\"#{console_name}\",#{msg.inspect})")
+    c.work
+    c.read_service_output_lines.each do |l|
+      VIM::command("call g:console_write(\"jep-debug\", #{l.inspect})")
     end
   end
 RUBYEOF
-  
+
   " retrigger hold event
   if mode() == "i"
     " escape and re-enter insert mode
@@ -166,6 +164,7 @@ $:.unshift("c:/users/mthiede/gitrepos/ruby-jep/lib")
 $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
 require 'jep/frontend/connector_manager'
+require 'jep/frontend/default_handler'
 
 class ConnectorLogger
   def initialize(jep_file)
@@ -192,8 +191,32 @@ class ConnectorLogger
   end
 end
 
-$connector_manager = JEP::Frontend::ConnectorManager.new(nil,
-  :logger_provider => proc do |jep_file| ConnectorLogger.new(jep_file) end,
-  :keep_outfile => true)
+def create_handler
+  JEP::Frontend::DefaultHandler.new(
+    :on_problem_change => ->(probs) do 
+      VIM::evaluate("g:console_write(\"jep-debug\",\"problem update\")")
+      wd = VIM::evaluate("getcwd()").gsub("\\", "/")
+      problems = []
+      probs.each do |p|
+        file = p.file.gsub("\\", "/").sub(wd, "").sub(/^\//, "")
+        problems << "#{file}:#{p.line}:#{p.message}"
+      end
+      VIM::command("cexpr [#{problems.collect{|p| p.inspect}.join(",")}]")
+    end
+  )
+end
+
+$connector_manager = JEP::Frontend::ConnectorManager.new do |config|
+  logger = ConnectorLogger.new(config.file)
+  handler = create_handler
+  con = JEP::Frontend::Connector.new(config, 
+    :logger => logger,
+    :log_service_output => true,
+    :message_handler => handler)
+  handler.connector = con
+  con
+end
+
 RUBYEOF
 
+"silent execute 'match SpellBad /\%'.linenum.'l\V\^'.escape(getline(linenum), '\').'\$/'
