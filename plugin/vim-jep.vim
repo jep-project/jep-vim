@@ -104,15 +104,7 @@ function! s:ping()
     endif
 
 ruby << RUBYEOF
-    file = VIM::evaluate('expand("%:p")')
-    connector = $connector_manager.connector_for_file(file)
-    if connector
-      connector.start unless connector.connected?
-      lines = VIM::evaluate('lines')
-      connector.message_handler.sync_file(file, lines.join("\n"))
-    else
-      VIM.message("JEP: no config for #{file}")
-    end
+    sync_backend
 RUBYEOF
 
     let b:last_lines = lines
@@ -149,6 +141,12 @@ ruby << RUBYEOF
 RUBYEOF
 endfunction
 
+function! s:bufRead()
+ruby << RUBYEOF
+  sync_backend
+RUBYEOF
+endfunction
+
 augroup jep 
   au!
   " au CursorMoved * call s:ping()
@@ -157,6 +155,7 @@ augroup jep
   au CursorHold * call s:ping()
   au CursorHoldI * call s:ping()
   au VimLeave * call s:leave()
+  au BufRead * call s:bufRead()
 augroup end
 
 ruby << RUBYEOF
@@ -165,6 +164,21 @@ $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
 require 'jep/frontend/connector_manager'
 require 'jep/frontend/default_handler'
+
+def sync_backend
+  file = VIM::evaluate('expand("%:p")')
+  connector = $connector_manager.connector_for_file(file)
+  if connector
+    unless connector.connected?
+      connector.start 
+      connector.work :for => 5, :while => ->{ !connector.connected? }
+    end
+    lines = VIM::evaluate('getline(0, "$")')
+    connector.message_handler.sync_file(file, lines.join("\n"))
+  else
+    VIM.message("JEP: no config for #{file}")
+  end
+end
 
 class ConnectorLogger
   def initialize(jep_file)
