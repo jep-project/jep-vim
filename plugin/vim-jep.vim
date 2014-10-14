@@ -69,6 +69,9 @@ function! s:make_diff(lines1, lines2)
 endfunction
 
 function! s:ping()
+ruby << RUBYEOF
+  #console_write("jep-debug", get_file)
+RUBYEOF
   if exists("b:last_changedtick") && b:changedtick > b:last_changedtick
     let lines = getline(0, "$") 
     if exists("b:last_lines")
@@ -77,8 +80,8 @@ function! s:ping()
       let change = []
     endif
     let debug_console = "jep-debug"
-    call g:console_write(debug_console, "changed win ".winnr()." [".len(lines)." lines] ".join(change, ",")) 
     if len(change) > 0
+      call g:console_write(debug_console, "changed win ".winnr()." [".len(lines)." lines] ".join(change, ",")) 
       if change[3] > change[2]
         if change[1] > change[0]
           if change[1] == change[0]+1
@@ -101,11 +104,12 @@ function! s:ping()
         endif
         call g:console_write(debug_console, join(b:last_lines[change[0] : change[1]-1], "\\n"))
       endif
-    endif
-
 ruby << RUBYEOF
-    sync_backend
+      sync_backend
 RUBYEOF
+    else
+      " no change
+    endif
 
     let b:last_lines = lines
   endif
@@ -113,17 +117,26 @@ RUBYEOF
 
 ruby << RUBYEOF
   $connector_manager.all_connectors.each do |c|
-    c.work
-    c.read_service_output_lines.each do |l|
-      VIM::command("call g:console_write(\"jep-debug\", #{l.inspect})")
+    begin
+      #console_write("jep-debug", "working...")
+      c.work
+    rescue Exception => e
+      console_write("jep-debug", e.to_s)
+      console_write("jep-debug", e.backtrace.join("\n"))
     end
   end
 RUBYEOF
 
   " retrigger hold event
   if mode() == "i"
-    " escape and re-enter insert mode
-    call feedkeys("\ea")
+    "call feedkeys(" \b")
+    let c = col(".")
+    if c <= len(getline("."))
+      call feedkeys("\<Right>")
+      call feedkeys("\<Left>")
+    else
+      call feedkeys("\<Right>")
+    endif
   else
     " start search and cancel
     call feedkeys("f\e")
@@ -147,37 +160,133 @@ ruby << RUBYEOF
 RUBYEOF
 endfunction
 
+function! g:jepCompleteFunc(findstart, base) abort
+  if a:findstart
+    let s:completionOptions = []
+ruby << RUBYEOF
+    sync_backend
+    file = get_file
+    con = get_connector(file)
+    token = con.message_handler.completion_request(file, cursor_pos)
+    result = nil
+    begin
+      con.work :for => 10, :while => -> do
+        result = con.message_handler.completion_result(token)
+        result == :pending
+      end
+    rescue Exception => e
+      console_write("jep-debug", e.to_s)
+      console_write("jep-debug", e.backtrace.join("\n"))
+    end
+    start = -1
+    case result
+    when :invalid
+      console_write("jep-debug", "invalid token")
+    when :timeout
+      console_write("jep-debug", "completion timeout")
+    else
+      console_write("jep-debug", "completion response")
+      # start counts from 0
+      start = col_from_pos(result.start)-1
+      options = result.options.collect{|o|
+        desc = o.desc ? "'menu': '#{o.desc}'," : ""
+        info = o.longDesc ? "'info': '#{o.longDesc}'," : ""
+        "{'word': '#{o.insert}', #{desc} #{info} 'dup': 1}"
+      }.join(",")
+      VIM.command("let s:completionOptions = [#{options}]")
+    end
+    console_write("jep-debug", start)
+    VIM.command("let l:result = #{start}")
+RUBYEOF
+    return l:result
+  else
+    return s:completionOptions
+  endif
+endfunction
+
+set omnifunc=g:jepCompleteFunc
+
 augroup jep 
   au!
   " au CursorMoved * call s:ping()
   " au CursorMovedI * call s:ping()
-  " au InsertLeave * call s:ping()
   au CursorHold * call s:ping()
   au CursorHoldI * call s:ping()
   au VimLeave * call s:leave()
   au BufRead * call s:bufRead()
+  " switch off visual bell while in insert mode
+  " otherwise retriggering of CursorHoldI may cause flickering
+  " note that switching of visualbell while in CursorHoldI handler
+  " doesn't work, probably because it's too late to take effect
+  au InsertEnter * set novisualbell
+  " TODO: check if it was on before
+  au InsertLeave * set visualbell
 augroup end
 
 ruby << RUBYEOF
 $:.unshift("c:/users/mthiede/gitrepos/ruby-jep/lib")
 $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
+require 'rgen/native'
 require 'jep/frontend/connector_manager'
 require 'jep/frontend/default_handler'
 
-def sync_backend
-  file = VIM::evaluate('expand("%:p")')
+def get_connector(file)
   connector = $connector_manager.connector_for_file(file)
   if connector
     unless connector.connected?
       connector.start 
       connector.work :for => 5, :while => ->{ !connector.connected? }
     end
-    lines = VIM::evaluate('getline(0, "$")')
-    connector.message_handler.sync_file(file, lines.join("\n"))
+    if connector.connected?
+      connector
+    else
+      console_write("jep-debug", "connection timeout for #{file}")
+      nil
+    end
   else
-    VIM.message("JEP: no config for #{file}")
+    console_write("jep-debug", "no config for #{file}")
+    nil
   end
+end
+
+def get_file
+  VIM::evaluate('expand("%:p")')
+end
+
+def sync_backend
+  file = get_file
+  con = get_connector(file)
+  if con
+    lines = VIM::evaluate('getline(0, "$")')
+    con.message_handler.sync_file(file, lines.join("\n"))
+  end
+end
+
+def col_from_pos(pos)
+  lines = VIM::evaluate('getline(0, "$")')
+  p = 0
+  lines.each do |l|
+    # +1 for the \n
+    line_len = l.size + 1
+    if p + line_len > pos
+      # col numbers start at 1
+      return pos - p + 1
+    else
+      p += line_len
+    end
+  end
+end
+
+def cursor_pos
+  lines = VIM::evaluate('getline(0, ".")')
+  pos = 0
+  lines[0..-2].each do |l|
+    # +1 for the \n
+    pos += l.size + 1
+  end
+  pos += VIM::evaluate('col(".")')-1
+  pos
 end
 
 class ConnectorLogger
@@ -200,22 +309,30 @@ class ConnectorLogger
     log("FATAL: #{msg}")
   end
   def log(msg)
-    console_name = "JEP: #{@jep_file}"
-    VIM::evaluate("g:console_write(\"#{console_name}\",#{msg.inspect})")
+    timestamp = Time.now
+    console_write("JEP: #{@jep_file}", 
+      "#{timestamp.hour}:#{timestamp.min}:#{timestamp.sec}.#{(timestamp.usec/1000).to_s.rjust(3)} #{msg}")
   end
+end
+
+def console_write(console_name, msg)
+  VIM::evaluate("g:console_write(\"#{console_name}\",#{msg.to_s.inspect})")
 end
 
 def create_handler
   JEP::Frontend::DefaultHandler.new(
-    :on_problem_change => ->(probs) do 
-      VIM::evaluate("g:console_write(\"jep-debug\",\"problem update\")")
+    :on_problem_change => ->(problems_by_file) do 
+      console_write("jep-debug", "problem update")
       wd = VIM::evaluate("getcwd()").gsub("\\", "/")
       problems = []
-      probs.each do |p|
-        file = p.file.gsub("\\", "/").sub(wd, "").sub(/^\//, "")
-        problems << "#{file}:#{p.line}:#{p.message}"
+      problems_by_file.each_pair do |file, probs|
+        probs.each do |p|
+          file = file.gsub("\\", "/").sub(wd, "").sub(/^\//, "")
+          problems << "#{file}:#{p.line}:#{p.message}"
+        end
       end
-      VIM::command("cexpr [#{problems.collect{|p| p.inspect}.join(",")}]")
+      # user cgetexpr which doesn't jump to first error in the list
+      VIM::command("cgetexpr [#{problems.collect{|p| p.inspect}.join(",")}]")
     end
   )
 end
