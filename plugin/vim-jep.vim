@@ -224,7 +224,7 @@ augroup jep
 augroup end
 
 ruby << RUBYEOF
-$:.unshift("c:/users/mthiede/gitrepos/ruby-jep/lib")
+$:.unshift("c:/users/mthiede/gitrepos/jep-ruby/lib")
 $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
 require 'rgen/native'
