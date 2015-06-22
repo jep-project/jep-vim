@@ -14,17 +14,17 @@ function! s:console_write(console, msg, show)
     if winnr > -1
       " console buffer open in window
       execute winnr . "wincmd w"
-      call s:write_msg(a:msg)
+      call s:write_msg("[".bufnr."] ".a:msg)
     elseif bufexists(bufnr)
       if a:show
         " display buffer in new window
         execute "split #" . bufnr
-        call s:write_msg(a:msg)
+        call s:write_msg("[".bufnr."] ".a:msg)
         let winbefore = winnr('#')
       else
         " console buffer hidden
         " append to message queue since we can't write to hidden buffer
-        let cdesc.messages = add(cdesc.messages, a:msg)
+        let cdesc.messages = add(cdesc.messages, "[".bufnr."] ".a:msg)
       endif
     else
       " buffer has been closed, create new one
@@ -48,9 +48,11 @@ function! s:console_write_new(console, msg, show)
   let s:console_descs[a:console] = cdesc
   let cdesc.messages = []
   " create new buffer
-  execute "split " . a:console
-  let cdesc.bufnr = bufnr("%")
-  " split seems to set readonly option right away depending on the buffer name
+  let cdesc.bufnr = bufnr(a:console, 1)
+  " open new buffer in new window
+  execute "sbuffer " . cdesc.bufnr
+  " bufnr created an unlisted buffer, set to listed
+  set buflisted
   set noreadonly
   " with 'nofile', the buffer can't be written and doesn't become dirty
   set buftype=nofile
