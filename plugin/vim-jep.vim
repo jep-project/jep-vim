@@ -1,4 +1,8 @@
+" TODO don't just make these setting, let the user a choice
 set updatetime=1000
+" lazyredraw avoids blinking when the cursor moves up and down
+" while retriggering the hold event
+set lazyredraw
  
 function! s:min_length(ary1, ary2)
   return len(a:ary1) < len(a:ary2) ? len(a:ary1) : len(a:ary2)
@@ -68,9 +72,45 @@ function! s:make_diff(lines1, lines2)
   endif
 endfunction
 
-function! s:ping()
+function! s:holdEventHandler()
+  call s:commonEventHandler()
+
+  " retrigger hold event
+  " remember that feedkeys will only do its work when the auto command is done
+  " beware: feedkeys only if triggered by holdevent! 
+  " otherwise visual mode may be canceled prematurely
+  let l = line(".")
+  if l < line("$")
+    call feedkeys("\<Down>\<Up>")
+  elseif l > 1
+    call feedkeys("\<Up>\<Down>")
+  else
+    " can't retrigger
+  endif
+  " not working:
+  " call feedkeys("f\<Esc>") -- this causes problems in NERDTree (f key has a meaning)
+  " call feedkeys("a\<Esc>") -- this causes a warning when modifiable is off
+  " call feedkeys(":echo\<cr>") -- this echos on the command line
+  " call feedkeys("\<A-F12>") -- sometimes inserts <M-F12> in FuF buffer
+endfunction
+
+function! s:moveEventHandler()
+  call s:commonEventHandler()
+endfunction
+
+let s:last_event_time = 0
+
+function! s:commonEventHandler()
+  if s:last_event_time == localtime()
+    return
+  endif
+  let s:last_event_time = localtime()
+  " don't process event in visual mode because our actions would cancel it
+  if mode() == "v" || mode() == "V" || mode() == "CTRL-V"
+    return
+  endif
 ruby << RUBYEOF
-  #console_write("jep-debug", get_file)
+  console_write("jep-debug", ".")
 RUBYEOF
   if exists("b:last_changedtick") && b:changedtick > b:last_changedtick
     let lines = getline(0, "$") 
@@ -127,21 +167,15 @@ ruby << RUBYEOF
   end
 RUBYEOF
 
-  " retrigger hold event
-  if mode() == "i"
-    "call feedkeys(" \b")
-    let c = col(".")
-    if c <= len(getline("."))
-      call feedkeys("\<Right>")
-      call feedkeys("\<Left>")
-    else
-      call feedkeys("\<Right>")
-    endif
-  else
-    " start search and cancel
-    call feedkeys("f\e")
-  endif
 endfunction
+
+" a dummy function, just to have something to map to
+"function! g:jepNothing()
+"endfunction
+
+" create a silent mapping to be used with feedkeys for retriggering the hold event
+" the silent mapping doesn't echo the command on the command line
+"map <silent> <A-F12> :call g:jepNothing()<cr>
 
 function! s:leave()
 ruby << RUBYEOF
@@ -208,19 +242,12 @@ set omnifunc=g:jepCompleteFunc
 
 augroup jep 
   au!
-  " au CursorMoved * call s:ping()
-  " au CursorMovedI * call s:ping()
-  au CursorHold * call s:ping()
-  au CursorHoldI * call s:ping()
+  au CursorMoved * call s:moveEventHandler()
+  au CursorMovedI * call s:moveEventHandler()
+  au CursorHold * call s:holdEventHandler()
+  au CursorHoldI * call s:holdEventHandler()
   au VimLeave * call s:leave()
   au BufRead * call s:bufRead()
-  " switch off visual bell while in insert mode
-  " otherwise retriggering of CursorHoldI may cause flickering
-  " note that switching of visualbell while in CursorHoldI handler
-  " doesn't work, probably because it's too late to take effect
-  au InsertEnter * set novisualbell
-  " TODO: check if it was on before
-  au InsertLeave * set visualbell
 augroup end
 
 ruby << RUBYEOF
