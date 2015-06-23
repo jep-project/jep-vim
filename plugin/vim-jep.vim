@@ -1,8 +1,5 @@
 " TODO don't just make these setting, let the user a choice
 set updatetime=1000
-" lazyredraw avoids blinking when the cursor moves up and down
-" while retriggering the hold event
-set lazyredraw
  
 function! s:min_length(ary1, ary2)
   return len(a:ary1) < len(a:ary2) ? len(a:ary1) : len(a:ary2)
@@ -72,32 +69,6 @@ function! s:make_diff(lines1, lines2)
   endif
 endfunction
 
-function! s:holdEventHandler()
-  call s:commonEventHandler()
-
-  " retrigger hold event
-  " remember that feedkeys will only do its work when the auto command is done
-  " beware: feedkeys only if triggered by holdevent! 
-  " otherwise visual mode may be canceled prematurely
-  let l = line(".")
-  if l < line("$")
-    call feedkeys("\<Down>\<Up>")
-  elseif l > 1
-    call feedkeys("\<Up>\<Down>")
-  else
-    " can't retrigger
-  endif
-  " not working:
-  " call feedkeys("f\<Esc>") -- this causes problems in NERDTree (f key has a meaning)
-  " call feedkeys("a\<Esc>") -- this causes a warning when modifiable is off
-  " call feedkeys(":echo\<cr>") -- this echos on the command line
-  " call feedkeys("\<A-F12>") -- sometimes inserts <M-F12> in FuF buffer
-endfunction
-
-function! s:moveEventHandler()
-  call s:commonEventHandler()
-endfunction
-
 let s:last_event_time = 0
 
 function! s:commonEventHandler()
@@ -105,8 +76,9 @@ function! s:commonEventHandler()
     return
   endif
   let s:last_event_time = localtime()
-  " don't process event in visual mode because our actions would cancel it
-  if mode() == "v" || mode() == "V" || mode() == "CTRL-V"
+  " don't process event in visual mode because our actions 
+  " (e.g. console_write with console visible) would cancel it
+  if mode() == "v" || mode() == "V" || mode() == ""
     return
   endif
 ruby << RUBYEOF
@@ -168,14 +140,6 @@ ruby << RUBYEOF
 RUBYEOF
 
 endfunction
-
-" a dummy function, just to have something to map to
-"function! g:jepNothing()
-"endfunction
-
-" create a silent mapping to be used with feedkeys for retriggering the hold event
-" the silent mapping doesn't echo the command on the command line
-"map <silent> <A-F12> :call g:jepNothing()<cr>
 
 function! s:leave()
 ruby << RUBYEOF
@@ -249,6 +213,42 @@ augroup jep
   au VimLeave * call s:leave()
   au BufRead * call s:bufRead()
 augroup end
+
+" a dummy function, just to have something to map to
+function! s:doNothing()
+endfunction
+
+" create a silent mapping to be used with feedkeys for retriggering the hold event
+" the silent mapping doesn't echo the command on the command line
+map <silent> <A-F12> :call <SID>doNothing()<cr>
+imap <silent> <A-F12> <Insert><Insert>
+" not working well:
+" imap <silent> <A-F12> <C-\><C-O>:call g:jepNothing()<cr> -- this way indentation after e.g. a { <CR> is lost
+
+function! s:holdEventHandler()
+  call s:commonEventHandler()
+
+  " retrigger hold event
+
+  " remember that feedkeys will only do its work when the auto command is done
+  " feedkeys depending on mode() can be a problem because the mode might have
+  " changed already when the keys are processed
+
+  " not working well:
+  " call feedkeys("f\<Esc>") -- this causes problems in NERDTree (f key has a meaning)
+  " call feedkeys("a\<Esc>") -- this causes a warning when modifiable is off
+  " call feedkeys(":echo\<cr>") -- this echos on the command line
+  " call feedkeys("\<C-R>\<Esc>") -- this rings the bell in insert mode
+  " call feedkeys("\<Down>\<Up>") -- this is sometimes visible (line number, when enter/leave matching parenthesis)
+
+  " strategy: define a key sequence to do nothing in all modes, use it for all modes
+  " this way it doesn't matter in which mode we are when the keys are processed
+  call feedkeys("\<A-F12>")
+endfunction
+
+function! s:moveEventHandler()
+  call s:commonEventHandler()
+endfunction
 
 ruby << RUBYEOF
 $:.unshift("c:/users/mthiede/gitrepos/jep-ruby/lib")
