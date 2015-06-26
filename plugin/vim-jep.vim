@@ -214,14 +214,12 @@ augroup jep
   au BufRead * call s:bufRead()
 augroup end
 
-" a dummy function, just to have something to map to
-function! s:doNothing()
-endfunction
-
 " create a silent mapping to be used with feedkeys for retriggering the hold event
 " the silent mapping doesn't echo the command on the command line
-map <silent> <A-F12> :call <SID>doNothing()<cr>
+map <silent> <A-F12> :<Esc>
 imap <silent> <A-F12> <Insert><Insert>
+" avoid that <A-F12> (default behavior) is inserted on the command line if keys are feed after command mode was just started
+cmap <silent> <A-F12> <Nop>
 " not working well:
 " imap <silent> <A-F12> <C-\><C-O>:call g:jepNothing()<cr> -- this way indentation after e.g. a { <CR> is lost
 
