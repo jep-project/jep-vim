@@ -4,6 +4,13 @@ function! g:console_write(console, msg, ...)
   call s:console_write(a:console, a:msg, a:0)
 endfunction
 
+augroup jep_console
+  au!
+  au InsertLeave * call s:insert_mode_leave()
+augroup end
+
+let s:console_descs = {}
+
 function! s:console_write(console, msg, show)
   " remember active window
   let cdesc = get(s:console_descs, a:console)
@@ -11,12 +18,15 @@ function! s:console_write(console, msg, show)
     let bufnr = cdesc.bufnr
     let winnr = bufwinnr(bufnr)
     let winbefore = winnr()
-    if winnr > -1
+    if winnr > -1 && mode() != "i"
       " console buffer open in window
+      " note: we don't change to another window while in insert mode
+      " since this would mess up the undo history
+      " instead we insert the message when the users leaves insert mode
       execute winnr . "wincmd w"
       call s:write_msg("[".bufnr."] ".a:msg)
     elseif bufexists(bufnr)
-      if a:show
+      if a:show && mode() != "i"
         " display buffer in new window
         execute "split #" . bufnr
         call s:write_msg("[".bufnr."] ".a:msg)
@@ -40,7 +50,21 @@ function! s:console_write(console, msg, show)
   execute winbefore . "wincmd w"
 endfunction
 
-let s:console_descs = {}
+function! s:insert_mode_leave()
+  for cdesc in values(s:console_descs)
+    if type(cdesc) == type({})
+      let winnr = bufwinnr(cdesc.bufnr)
+      if winnr > -1 && mode() != "i"
+        " console buffer open in window
+        let winbefore = winnr()
+        execute winnr . "wincmd w"
+        call s:buffer_shown()
+        " switch back to original window
+        execute winbefore . "wincmd w"
+      endif
+    endif
+  endfor
+endfunction
 
 function! s:console_write_new(console, msg, show)
   " create new console descriptor
