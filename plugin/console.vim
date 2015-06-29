@@ -18,7 +18,7 @@ function! s:console_write(console, msg, show)
     let bufnr = cdesc.bufnr
     let winnr = bufwinnr(bufnr)
     let winbefore = winnr()
-    if winnr > -1 && mode() != "i"
+    if winnr > -1 && s:can_change_window()
       " console buffer open in window
       " note: we don't change to another window while in insert mode
       " since this would mess up the undo history
@@ -26,7 +26,7 @@ function! s:console_write(console, msg, show)
       execute winnr . "wincmd w"
       call s:write_msg("[".bufnr."] ".a:msg)
     elseif bufexists(bufnr)
-      if a:show && mode() != "i"
+      if a:show && s:can_change_window()
         " display buffer in new window
         execute "split #" . bufnr
         call s:write_msg("[".bufnr."] ".a:msg)
@@ -48,6 +48,10 @@ function! s:console_write(console, msg, show)
   endif
   " switch back to original window
   execute winbefore . "wincmd w"
+endfunction
+
+function! s:can_change_window()
+  return mode() != "i" && mode() != "v" && mode() != "V" && mode() != ""
 endfunction
 
 function! s:insert_mode_leave()

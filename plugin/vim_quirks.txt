@@ -1,0 +1,32 @@
+# Hold event retriggering
+
+remember that feedkeys will only do its work when the auto command is done
+feedkeys depending on mode() can be a problem because the mode might have
+changed already when the keys are processed
+
+strategy: define a key sequence to do nothing in all modes, use it for all modes
+this way it doesn't matter in which mode we are when the keys are processed
+
+create a silent mapping to be used with feedkeys for retriggering the hold event
+the silent mapping doesn't echo the command on the command line
+
+map <silent> <A-F12> :<Esc>
+imap <silent> <A-F12> <Insert><Insert>
+avoid that <A-F12> (default behavior) is inserted on the command line if keys are feed after command mode was just started
+cmap <silent> <A-F12> <Nop>
+
+## not working well
+
+imap <silent> <A-F12> <C-\><C-O>:call g:jepNothing()<cr> -- this way indentation after e.g. a { <CR> is lost
+
+call feedkeys("f\<Esc>") -- this causes problems in NERDTree (f key has a meaning)
+call feedkeys("a\<Esc>") -- this causes a warning when modifiable is off
+call feedkeys(":echo\<cr>") -- this echos on the command line
+call feedkeys("\<C-R>\<Esc>") -- this rings the bell in insert mode
+call feedkeys("\<Down>\<Up>") -- this is sometimes visible (line number, when enter/leave matching parenthesis)
+
+# Console
+
+don't change to other window while in insert mode: this would mess up the undo history
+
+don't change to other window while in visual mode: this would cancel it

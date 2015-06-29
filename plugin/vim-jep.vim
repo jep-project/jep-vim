@@ -1,93 +1,62 @@
 " TODO don't just make these setting, let the user a choice
 set updatetime=1000
- 
-function! s:min_length(ary1, ary2)
-  return len(a:ary1) < len(a:ary2) ? len(a:ary1) : len(a:ary2)
+set omnifunc=g:jepCompleteFunc
+
+augroup jep 
+  au!
+  au CursorMoved * call s:moveEventHandler()
+  au CursorMovedI * call s:moveEventHandler()
+  au CursorHold * call s:holdEventHandler()
+  au CursorHoldI * call s:holdEventHandler()
+  au VimLeave * call s:vimLeaveEventHandler()
+  au BufRead * call s:bufReadEventHandler()
+augroup end
+
+" key mappings for retriggering the hold event
+map <silent> <A-F12> :<Esc>
+imap <silent> <A-F12> <Insert><Insert>
+cmap <silent> <A-F12> <Nop>
+
+function! s:holdEventHandler()
+  call s:updateEventHandler()
+  call feedkeys("\<A-F12>")
 endfunction
 
-" offset of first different line 
-" runs from the first element forward or the last element backward (reverse == true)
-" equal to length of shorter file if no different line is found
-function! s:first_diff_offset(lines1, lines2, reverse)
-  let minlen = s:min_length(a:lines1, a:lines2)
-  let si = 0
-  let ei = minlen-1
-  while ei > si
-    let len = ei - si + 1
-    let m = si + float2nr(floor(len/2)) - 1
-    if !a:reverse
-      let equal = (a:lines1[si : m] == a:lines2[si : m])
-    else
-      let equal = (a:lines1[-1-m : -1-si] == a:lines2[-1-m : -1-si])
-    end
-    if equal
-      let si = m+1
-    else
-      let ei = m
-    endif
-  endwhile
-  " si == ei
-  if !a:reverse
-    let equal = a:lines1[si] == a:lines2[si]
-  else
-    let equal = a:lines1[-1-si] == a:lines2[-1-si]
+function! s:moveEventHandler()
+  call s:updateEventHandler()
+endfunction
+
+function! s:vimLeaveEventHandler()
+ruby << RUBYEOF
+  VIM.message("leaving...")
+  $connector_manager.all_connectors.each do |c|
+    c.stop
   end
-  if equal
-    return si+1
-  else 
-    return si
-  endif
+  VIM.message("exit now")
+  sleep(1)
+RUBYEOF
 endfunction
 
-function! s:make_diff(lines1, lines2)
-  let minlen = s:min_length(a:lines1, a:lines2)
-  let start_offset = s:first_diff_offset(a:lines1, a:lines2, 0)
-  if start_offset == minlen
-    " not found
-    if len(a:lines1) > len(a:lines2)
-      " cut lines1 at the end
-      return [len(a:lines2), len(a:lines1), len(a:lines2), len(a:lines2)]
-    elseif len(a:lines1) < len(a:lines2)
-      " added to lines1 at the end
-      return [len(a:lines1), len(a:lines1), len(a:lines1), len(a:lines2)]
-    else
-      " no change
-      return []
-    endif
-  else
-    let end_offset = s:first_diff_offset(a:lines1, a:lines2, 1)
-    if len(a:lines1) < len(a:lines2)
-      if start_offset > len(a:lines1)-end_offset
-        let end_offset = len(a:lines1)-start_offset
-      endif
-    else
-      if start_offset > len(a:lines2)-end_offset
-        let end_offset = len(a:lines2)-start_offset
-      end
-    end
-    return [start_offset, len(a:lines1)-end_offset, start_offset, len(a:lines2)-end_offset]
-  endif
+function! s:bufReadEventHandler()
+ruby << RUBYEOF
+  sync_backend
+RUBYEOF
 endfunction
 
 let s:last_event_time = 0
 
-function! s:commonEventHandler()
+function! s:updateEventHandler()
   if s:last_event_time == localtime()
     return
   endif
   let s:last_event_time = localtime()
-  " don't process event in visual mode because our actions 
-  " (e.g. console_write with console visible) would cancel it
-  if mode() == "v" || mode() == "V" || mode() == ""
-    return
-  endif
 ruby << RUBYEOF
   console_write("jep-debug", ".")
 RUBYEOF
   if exists("b:last_changedtick") && b:changedtick > b:last_changedtick
     let lines = getline(0, "$") 
     if exists("b:last_lines")
-      let change = s:make_diff(b:last_lines, lines)
+      let change = g:jep_make_diff(b:last_lines, lines)
     else
       let change = []
     endif
@@ -141,23 +110,7 @@ RUBYEOF
 
 endfunction
 
-function! s:leave()
-ruby << RUBYEOF
-  VIM.message("leaving...")
-  $connector_manager.all_connectors.each do |c|
-    c.stop
-  end
-  VIM.message("exit now")
-  sleep(1)
-RUBYEOF
-endfunction
-
-function! s:bufRead()
-ruby << RUBYEOF
-  sync_backend
-RUBYEOF
-endfunction
-
+" leave it up to the user how to map the completion function
 function! g:jepCompleteFunc(findstart, base) abort
   if a:findstart
     let s:completionOptions = []
@@ -200,52 +153,6 @@ RUBYEOF
   else
     return s:completionOptions
   endif
-endfunction
-
-set omnifunc=g:jepCompleteFunc
-
-augroup jep 
-  au!
-  au CursorMoved * call s:moveEventHandler()
-  au CursorMovedI * call s:moveEventHandler()
-  au CursorHold * call s:holdEventHandler()
-  au CursorHoldI * call s:holdEventHandler()
-  au VimLeave * call s:leave()
-  au BufRead * call s:bufRead()
-augroup end
-
-" create a silent mapping to be used with feedkeys for retriggering the hold event
-" the silent mapping doesn't echo the command on the command line
-map <silent> <A-F12> :<Esc>
-imap <silent> <A-F12> <Insert><Insert>
-" avoid that <A-F12> (default behavior) is inserted on the command line if keys are feed after command mode was just started
-cmap <silent> <A-F12> <Nop>
-" not working well:
-" imap <silent> <A-F12> <C-\><C-O>:call g:jepNothing()<cr> -- this way indentation after e.g. a { <CR> is lost
-
-function! s:holdEventHandler()
-  call s:commonEventHandler()
-
-  " retrigger hold event
-
-  " remember that feedkeys will only do its work when the auto command is done
-  " feedkeys depending on mode() can be a problem because the mode might have
-  " changed already when the keys are processed
-
-  " not working well:
-  " call feedkeys("f\<Esc>") -- this causes problems in NERDTree (f key has a meaning)
-  " call feedkeys("a\<Esc>") -- this causes a warning when modifiable is off
-  " call feedkeys(":echo\<cr>") -- this echos on the command line
-  " call feedkeys("\<C-R>\<Esc>") -- this rings the bell in insert mode
-  " call feedkeys("\<Down>\<Up>") -- this is sometimes visible (line number, when enter/leave matching parenthesis)
-
-  " strategy: define a key sequence to do nothing in all modes, use it for all modes
-  " this way it doesn't matter in which mode we are when the keys are processed
-  call feedkeys("\<A-F12>")
-endfunction
-
-function! s:moveEventHandler()
-  call s:commonEventHandler()
 endfunction
 
 ruby << RUBYEOF
