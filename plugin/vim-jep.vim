@@ -118,11 +118,12 @@ ruby << RUBYEOF
     sync_backend
     file = get_file
     con = get_connector(file)
+    # TODO: handle con being nil if no config was found
     token = con.message_handler.completion_request(file, cursor_pos)
     result = nil
     begin
       con.work :for => 10, :while => -> do
-        result = con.message_handler.completion_result(token)
+        result = con.message_handler.request_result(token)
         result == :pending
       end
     rescue Exception => e
@@ -155,6 +156,57 @@ RUBYEOF
   endif
 endfunction
 
+function! g:jepJumpReference()
+ruby << RUBYEOF
+  file = get_file
+  if has_jep_config(file)
+    sync_backend
+    result = nil
+    con = get_connector(file)
+    if con
+      token = con.message_handler.link_request(file, cursor_pos)
+      begin
+        con.work :for => 10, :while => -> do
+          result = con.message_handler.request_result(token)
+          result == :pending
+        end
+      rescue Exception => e
+        console_write("jep-debug", e.to_s)
+        console_write("jep-debug", e.backtrace.join("\n"))
+      end
+      case result
+      when :invalid
+        console_write("jep-debug", "invalid token")
+      when :timeout
+        console_write("jep-debug", "link timeout")
+      else
+        console_write("jep-debug", "link response")
+        links = result.links
+        if links.size == 1
+          VIM::command("e +#{line_from_pos(links.first.pos)} #{links.first.file}")
+        elsif links.size > 1
+          index = 0
+          vim_targets = links.collect do |t|
+            index += 1
+            "'#{index}. #{t.display}'"
+          end
+          selected = VIM::evaluate("inputlist(['Select target:', #{vim_targets.join(",")}])")
+          if selected > 0
+            target = links[selected-1]
+            VIM::command("e +#{line_from_pos(target.pos)} #{target.file}")
+          end
+        else
+          VIM::message("JEP: no link targets")
+        end
+      end
+    end
+  else
+    # no jep config, do what <C-]> normally does
+    VIM::command("tag "+VIM::evaluate('expand("<cword>")'))
+  end
+RUBYEOF
+endfunction
+
 ruby << RUBYEOF
 $:.unshift("c:/users/mthiede/gitrepos/jep-ruby/lib")
 $:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
@@ -162,6 +214,10 @@ require 'logger'
 require 'rgen/native'
 require 'jep/frontend/connector_manager'
 require 'jep/frontend/default_handler'
+
+def has_jep_config(file)
+  !$connector_manager.connector_for_file(file).nil?
+end
 
 def get_connector(file)
   connector = $connector_manager.connector_for_file(file)
@@ -204,6 +260,21 @@ def col_from_pos(pos)
     if p + line_len > pos
       # col numbers start at 1
       return pos - p + 1
+    else
+      p += line_len
+    end
+  end
+end
+
+def line_from_pos(pos)
+  lines = VIM::evaluate('getline(0, "$")')
+  p = 0
+  lines.each_with_index do |l, i|
+    # +1 for the \n
+    line_len = l.size + 1
+    if p + line_len > pos
+      # line numbers start at 1
+      return i + 1 
     else
       p += line_len
     end
