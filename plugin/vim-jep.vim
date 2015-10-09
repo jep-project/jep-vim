@@ -191,7 +191,6 @@ endfunction
 
 ruby << RUBYEOF
 require 'logger'
-require 'rgen/native'
 require 'jep/frontend/connector_manager'
 require 'jep/frontend/default_handler'
 
