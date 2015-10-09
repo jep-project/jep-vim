@@ -208,8 +208,6 @@ RUBYEOF
 endfunction
 
 ruby << RUBYEOF
-$:.unshift("c:/users/mthiede/gitrepos/jep-ruby/lib")
-$:.unshift("c:/users/mthiede/gitrepos/win32-process/lib")
 require 'logger'
 require 'rgen/native'
 require 'jep/frontend/connector_manager'
