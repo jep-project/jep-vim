@@ -1,30 +1,12 @@
-" TODO don't just make these setting, let the user a choice
-set updatetime=1000
-set omnifunc=g:jepCompleteFunc
-
 augroup jep 
   au!
-  au CursorMoved * call s:moveEventHandler()
-  au CursorMovedI * call s:moveEventHandler()
-  au CursorHold * call s:holdEventHandler()
-  au CursorHoldI * call s:holdEventHandler()
+  au CursorHold * call g:jepUpdateEvent()
+  au CursorHoldI * call g:jepUpdateEvent()
+  au CursorMoved * call g:jepUpdateEvent()
+  au CursorMovedI * call g:jepUpdateEvent()
   au VimLeave * call s:vimLeaveEventHandler()
   au BufRead * call s:bufReadEventHandler()
 augroup end
-
-" key mappings for retriggering the hold event
-map <silent> <A-F12> :<Esc>
-imap <silent> <A-F12> <Insert><Insert>
-cmap <silent> <A-F12> <Nop>
-
-function! s:holdEventHandler()
-  call s:updateEventHandler()
-  call feedkeys("\<A-F12>")
-endfunction
-
-function! s:moveEventHandler()
-  call s:updateEventHandler()
-endfunction
 
 function! s:vimLeaveEventHandler()
 ruby << RUBYEOF
@@ -45,7 +27,7 @@ endfunction
 
 let s:last_event_time = 0
 
-function! s:updateEventHandler()
+function! g:jepUpdateEvent()
   if s:last_event_time == localtime()
     return
   endif
